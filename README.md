@@ -2,6 +2,10 @@
 
 A KWin script for KDE Plasma 6 that opens chosen apps on the monitor you last moved them to, in a section of that monitor you pick (left half, top-right quarter, center third, maximized, ...).
 
+| Light | Dark |
+| --- | --- |
+| ![Settings window, light theme](docs/screenshots/settings-light.png) | ![Settings window, dark theme](docs/screenshots/settings-dark.png) |
+
 - Monitors are identified by **manufacturer, model and serial number**, so changing ports doesn't matter, and two identical monitors at different desks are treated as different monitors. Monitors that report no serial number fall back to manufacturer and model.
 - If the remembered monitor isn't connected, the app opens on the **main monitor**, wherever and however it places itself.
 - Moving an app to another monitor makes it remember that monitor. Moves caused by plugging or unplugging monitors are ignored.
