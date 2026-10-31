@@ -58,8 +58,9 @@ function serializeApps(list) {
     return JSON.stringify(normalizeApps(list));
 }
 
-// Old text format from the System Settings page: one "app = section" per line, # comments.
-function parseLegacyApps(text) {
+// Manual entries from the System Settings page: one "app = section" per line, # comments.
+// (KWin's own windows can't receive typing, so app ids that can't be picked go there.)
+function parseManualApps(text) {
     const list = [];
     for (const raw of String(text || "").split("\n")) {
         const line = raw.trim();
@@ -68,6 +69,22 @@ function parseLegacyApps(text) {
         list.push({ app: parts[0], section: parts.length > 1 ? parts[1] : "keep" });
     }
     return normalizeApps(list);
+}
+
+// The settings window's list first; manual entries only for apps it doesn't have.
+function mergeApps(apps, manual) {
+    return normalizeApps((apps || []).concat(manual || []));
+}
+
+// Manual entries that aren't overridden by the settings window's list
+function manualOnly(apps, manual) {
+    return (manual || []).filter(m => !(apps || []).some(a => a.app === m.app));
+}
+
+// App id for a window or a queryWindowInfo result: desktop file name when there is one,
+// else its class (both are checked by findApp when matching windows)
+function appIdOf(desktopFile, resourceClass, resourceName) {
+    return String(desktopFile || resourceClass || resourceName || "").trim().toLowerCase();
 }
 
 // names: the window's identifiers (resource class, resource name, desktop file name)
@@ -103,6 +120,69 @@ function monitorMatches(output, id) {
 
 function findOutput(screens, id) {
     return (screens || []).find(o => monitorMatches(o, id)) || null;
+}
+
+// Model names shared by monitors with different serials, among the given ids and outputs;
+// those need part of the serial to be told apart. Ids without a serial (saved before
+// serials were used, or from monitors that report none) don't make a model ambiguous.
+function ambiguousModels(ids, screens) {
+    const serials = {};
+    const add = (m) => {
+        if (!m.model || !m.serial) return;
+        const key = m.manufacturer + "|" + m.model;
+        serials[key] = serials[key] || {};
+        serials[key][m.serial] = true;
+    };
+    for (const id of ids || []) add(parseMonitorId(id));
+    for (const o of screens || []) add(parseMonitorId(monitorId(o)));
+    return Object.keys(serials).filter(k => Object.keys(serials[k]).length > 1);
+}
+
+// "VG27A", or "VG27A (…0612)" when another remembered/connected VG27A exists
+function monitorShortName(id, ambiguous) {
+    const m = parseMonitorId(id);
+    const name = m.model || m.manufacturer;
+    const clash = (ambiguous || []).indexOf(m.manufacturer + "|" + m.model) !== -1;
+    return clash && m.serial ? name + " (…" + m.serial.slice(-4) + ")" : name;
+}
+
+// Where an output sits relative to the main monitor, e.g. "above main monitor"
+function relativePosition(output, main) {
+    if (!main || output === main || monitorId(output) === monitorId(main)) return "main monitor";
+    const a = output.geometry, b = main.geometry;
+    const dx = (a.x + a.width / 2) - (b.x + b.width / 2);
+    const dy = (a.y + a.height / 2) - (b.y + b.height / 2);
+    if (Math.abs(dx) * b.height >= Math.abs(dy) * b.width) return dx < 0 ? "left of main monitor" : "right of main monitor";
+    return dy < 0 ? "above main monitor" : "below main monitor";
+}
+
+// Last-seen times (ms) by monitor id. Connected monitors are seen now, and so are
+// monitors that were connected until now (previousIds).
+function updateSeen(seen, previousIds, currentIds, now) {
+    const out = Object.assign({}, seen || {});
+    for (const id of (previousIds || []).concat(currentIds || [])) if (id) out[id] = now;
+    return out;
+}
+
+// Everything the settings window shows about a remembered monitor; the caller formats lastSeen.
+function describeMonitor(id, screens, screenOrder, seen, ambiguous) {
+    const output = findOutput(screens, id);
+    const main = (screenOrder && screenOrder.length) ? screenOrder[0] : null;
+    return {
+        name: monitorShortName(id, ambiguous),
+        connected: !!output,
+        position: output ? relativePosition(output, main) : "",
+        lastSeen: (seen && seen[id]) || 0,
+        details: monitorDetails(id)
+    };
+}
+
+// The full id (with serial) for a remembered id that lacks one, if its monitor is
+// connected; otherwise the id unchanged.
+function upgradeMonitorId(id, screens) {
+    if (!id || parseMonitorId(id).serial) return id;
+    const output = findOutput(screens, id);
+    return output ? monitorId(output) : id;
 }
 
 // Short name for lists ("VG27A (ASUSTek COMPUTER INC)"); monitorDetails adds the serial.
@@ -162,10 +242,20 @@ function shouldUndoMaximize(sectionId, msSinceOpen, maximizeMode, graceMs) {
     return maximizeMode !== 0 && msSinceOpen < graceMs;
 }
 
-// Monitor changes right after opening are our own placement, and ones right after
-// monitors were plugged/unplugged are KWin evacuating windows; neither is the user's choice.
-function shouldRemember(msSinceOpen, msSinceScreensChanged, graceMs, settleMs) {
-    return msSinceOpen >= graceMs && msSinceScreensChanged >= settleMs;
+// Whether a window's monitor change is the user's choice. Ones right after monitors were
+// plugged/unplugged are KWin evacuating windows. Moves by the user dragging the window
+// always count; other moves only after the first moments, when apps that position
+// themselves (X11 apps) do so.
+function shouldRemember(byUser, msSinceOpen, msSinceScreensChanged, graceMs, settleMs) {
+    if (msSinceScreensChanged < settleMs) return false;
+    return byUser || msSinceOpen >= graceMs;
+}
+
+// When an app's window closes, its monitor is remembered only if none is yet: an app
+// that opened on the main monitor because its remembered one is unplugged must not
+// lose it. Closes right after monitors were plugged/unplugged are ignored too.
+function shouldRememberOnClose(savedId, msSinceScreensChanged, settleMs) {
+    return !savedId && msSinceScreensChanged >= settleMs;
 }
 
 // Suggestions for the app picker: open windows first (with their caption), then
@@ -182,6 +272,17 @@ function buildSuggestions(windows, desktopIds) {
     for (const w of windows || []) add(w.app, w.label, "open");
     for (const id of desktopIds || []) add(id, id, "installed");
     return out;
+}
+
+// Options for an app dropdown: the suggestions, plus the row's current app if it's
+// neither open nor installed (e.g. picked from a window of an app without a desktop file).
+// "text" is what the dropdown shows: open windows add their title.
+function appOptions(suggestions, current) {
+    const app = String(current || "").trim().toLowerCase();
+    const list = (!app || suggestions.some(s => s.app === app))
+        ? suggestions
+        : [{ app: app, label: app, source: "custom" }].concat(suggestions);
+    return list.map(s => Object.assign({ text: s.source === "open" ? s.app + "  ·  " + s.label : s.app }, s));
 }
 
 function filterSuggestions(suggestions, query, limit) {

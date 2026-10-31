@@ -80,13 +80,27 @@ class AppsConfigTest(LogicTest):
         self.assertEqual(self.call("parseApps", '{"app": "x"}'), [])
         self.assertEqual(self.call("parseApps", ""), [])
 
-    def test_parse_legacy_text(self):
+    def test_parse_manual_text(self):
         text = "# comment\ndiscord = left\n\norg.kde.kcalc=bottom-right\nfirefox\n"
-        self.assertEqual(self.call("parseLegacyApps", text), [
+        self.assertEqual(self.call("parseManualApps", text), [
             {"app": "discord", "section": "left"},
             {"app": "org.kde.kcalc", "section": "bottom-right"},
             {"app": "firefox", "section": "keep"},
         ])
+
+    def test_merge_prefers_settings_window_entries(self):
+        apps = [{"app": "discord", "section": "left"}]
+        manual = [{"app": "discord", "section": "right"}, {"app": "steam", "section": "maximized"}]
+        self.assertEqual(self.call("mergeApps", apps, manual), [
+            {"app": "discord", "section": "left"},
+            {"app": "steam", "section": "maximized"},
+        ])
+        self.assertEqual(self.call("manualOnly", apps, manual), [{"app": "steam", "section": "maximized"}])
+
+    def test_app_id_prefers_desktop_file(self):
+        self.assertEqual(self.call("appIdOf", "com.discordapp.Discord", "discord", "Discord"), "com.discordapp.discord")
+        self.assertEqual(self.call("appIdOf", "", "Discord", "x"), "discord")
+        self.assertEqual(self.call("appIdOf", "", "", ""), "")
 
     def test_find_app_checks_every_window_name_case_insensitively(self):
         apps = [{"app": "discord", "section": "left"}]
@@ -120,6 +134,57 @@ class MonitorTest(LogicTest):
     def test_monitor_details(self):
         self.assertEqual(self.call("monitorDetails", ASUS_ID), "VG27A (ASUSTek COMPUTER INC), S/N M2LMQS140612")
         self.assertEqual(self.call("monitorDetails", "ASUSTek COMPUTER INC|VG27A"), "VG27A (ASUSTek COMPUTER INC)")
+
+
+class MonitorDescriptionTest(LogicTest):
+    # main ultrawide below, second monitor above it (the user's layout)
+    MAIN = {**SAMSUNG, "geometry": {"x": 0, "y": 1440, "width": 3440, "height": 1440}}
+    ABOVE = {**ASUS, "geometry": {"x": 338, "y": 0, "width": 2560, "height": 1440}}
+    RIGHT = {**ASUS_OTHER_DESK, "geometry": {"x": 3440, "y": 1440, "width": 2560, "height": 1440}}
+
+    def test_relative_position(self):
+        self.assertEqual(self.call("relativePosition", self.ABOVE, self.MAIN), "above main monitor")
+        self.assertEqual(self.call("relativePosition", self.RIGHT, self.MAIN), "right of main monitor")
+        left = {**self.RIGHT, "geometry": {"x": -2560, "y": 1500, "width": 2560, "height": 1440}}
+        self.assertEqual(self.call("relativePosition", left, self.MAIN), "left of main monitor")
+        below = {**self.RIGHT, "geometry": {"x": 400, "y": 2880, "width": 2560, "height": 1440}}
+        self.assertEqual(self.call("relativePosition", below, self.MAIN), "below main monitor")
+        self.assertEqual(self.call("relativePosition", self.MAIN, self.MAIN), "main monitor")
+
+    def test_same_model_gets_short_serial(self):
+        ids = [ASUS_ID, "ASUSTek COMPUTER INC|VG27A|OTHERSERIAL1"]
+        ambiguous = self.call("ambiguousModels", ids, [self.MAIN])
+        self.assertEqual(ambiguous, ["ASUSTek COMPUTER INC|VG27A"])
+        self.assertEqual(self.call("monitorShortName", ASUS_ID, ambiguous), "VG27A (…0612)")
+        self.assertEqual(self.call("monitorShortName", SAMSUNG_ID, ambiguous), "LC34G55T")
+
+    def test_connected_same_model_also_counts(self):
+        self.assertEqual(self.call("ambiguousModels", [ASUS_ID], [self.MAIN, self.RIGHT]), ["ASUSTek COMPUTER INC|VG27A"])
+
+    def test_id_without_serial_does_not_make_model_ambiguous(self):
+        ids = [ASUS_ID, "ASUSTek COMPUTER INC|VG27A"]
+        self.assertEqual(self.call("ambiguousModels", ids, [self.MAIN, self.ABOVE]), [])
+
+    def test_upgrade_id_without_serial_when_connected(self):
+        self.assertEqual(self.call("upgradeMonitorId", "ASUSTek COMPUTER INC|VG27A", [self.MAIN, self.ABOVE]), ASUS_ID)
+        self.assertEqual(self.call("upgradeMonitorId", "ASUSTek COMPUTER INC|VG27A", [self.MAIN]), "ASUSTek COMPUTER INC|VG27A")
+        self.assertEqual(self.call("upgradeMonitorId", SAMSUNG_ID, [self.MAIN]), SAMSUNG_ID)
+        self.assertEqual(self.call("upgradeMonitorId", "", [self.MAIN]), "")
+
+    def test_unique_model_has_no_serial(self):
+        self.assertEqual(self.call("ambiguousModels", [ASUS_ID], [self.MAIN, self.ABOVE]), [])
+
+    def test_describe_connected(self):
+        d = self.call("describeMonitor", ASUS_ID, [self.MAIN, self.ABOVE], [self.MAIN, self.ABOVE], {}, [])
+        self.assertEqual((d["name"], d["connected"], d["position"]), ("VG27A", True, "above main monitor"))
+
+    def test_describe_disconnected_uses_last_seen(self):
+        d = self.call("describeMonitor", ASUS_ID, [self.MAIN], [self.MAIN], {ASUS_ID: 1234}, [])
+        self.assertEqual((d["connected"], d["position"], d["lastSeen"]), (False, "", 1234))
+
+    def test_update_seen_marks_current_and_just_disconnected(self):
+        seen = self.call("updateSeen", {"old": 1, ASUS_ID: 5}, [ASUS_ID, SAMSUNG_ID], [SAMSUNG_ID], 99)
+        self.assertEqual(seen, {"old": 1, ASUS_ID: 99, SAMSUNG_ID: 99})
 
 
 class PlacementTest(LogicTest):
@@ -191,9 +256,19 @@ class TimingTest(LogicTest):
         self.assertFalse(self.call("shouldUndoMaximize", "keep", 1000, 3, self.GRACE))
 
     def test_remember_only_user_moves(self):
-        self.assertTrue(self.call("shouldRemember", 10000, 10000, self.GRACE, self.SETTLE))
-        self.assertFalse(self.call("shouldRemember", 1000, 10000, self.GRACE, self.SETTLE))  # our own placement
-        self.assertFalse(self.call("shouldRemember", 10000, 500, self.GRACE, self.SETTLE))   # monitor unplugged
+        self.assertTrue(self.call("shouldRemember", False, 10000, 10000, self.GRACE, self.SETTLE))
+        self.assertFalse(self.call("shouldRemember", False, 1000, 10000, self.GRACE, self.SETTLE))  # app placing itself
+        self.assertFalse(self.call("shouldRemember", False, 10000, 500, self.GRACE, self.SETTLE))   # monitor unplugged
+
+    def test_dragging_counts_right_after_opening(self):
+        self.assertTrue(self.call("shouldRemember", True, 500, 10000, self.GRACE, self.SETTLE))
+        self.assertFalse(self.call("shouldRemember", True, 500, 500, self.GRACE, self.SETTLE))
+
+
+    def test_remember_on_close_only_when_nothing_remembered(self):
+        self.assertTrue(self.call("shouldRememberOnClose", "", 10000, self.SETTLE))
+        self.assertFalse(self.call("shouldRememberOnClose", ASUS_ID, 10000, self.SETTLE))
+        self.assertFalse(self.call("shouldRememberOnClose", "", 500, self.SETTLE))
 
 
 class SuggestionsTest(LogicTest):
@@ -210,6 +285,20 @@ class SuggestionsTest(LogicTest):
         s = self.call("buildSuggestions", self.WINDOWS, self.DESKTOP)
         self.assertEqual([x["app"] for x in self.call("filterSuggestions", s, "KDE")], ["org.kde.kcalc", "org.kde.konsole"])
         self.assertEqual([x["app"] for x in self.call("filterSuggestions", s, "friends")], ["discord"])
+
+    def test_app_options_include_current_custom_app(self):
+        s = self.call("buildSuggestions", self.WINDOWS, self.DESKTOP)
+        options = self.call("appOptions", s, "Steam")
+        self.assertEqual(options[0], {"app": "steam", "label": "steam", "source": "custom", "text": "steam"})
+        self.assertEqual([o["app"] for o in options[1:]], [x["app"] for x in s])
+        self.assertEqual(len(self.call("appOptions", s, "discord")), len(s))
+        self.assertEqual(len(self.call("appOptions", s, "")), len(s))
+
+    def test_app_options_text_shows_window_title_for_open_apps(self):
+        s = self.call("buildSuggestions", self.WINDOWS, self.DESKTOP)
+        texts = [o["text"] for o in self.call("appOptions", s, "")]
+        self.assertEqual(texts[0], "discord  ·  Friends - Discord")
+        self.assertEqual(texts[2], "org.kde.kcalc")
 
     def test_empty_query_returns_all_up_to_limit(self):
         s = self.call("buildSuggestions", self.WINDOWS, self.DESKTOP)

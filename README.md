@@ -9,11 +9,17 @@ A KWin script for KDE Plasma 6 that opens chosen apps on the monitor you last mo
 
 ## Settings
 
-Press **Meta+Ctrl+M**, or open **Remember App Monitor** from the app launcher (installed by `make install`). For each app, search your open windows and installed apps (or type a window class), then choose a section. Each row shows the remembered monitor, with a button to forget it.
+Press **Meta+Ctrl+M**, or open **Remember App Monitor** from the app launcher (installed by `make install`). For each app:
+
+- **App:** choose it from the list of open windows and installed apps, or click the crosshair button and then click the app's window.
+- **Section:** where on the monitor it opens.
+- **Remembered monitor:** the monitor it opens on. It's remembered when you move the app to another monitor, or, if none is remembered yet, when the app is closed. It's described by where it sits ("above main monitor") or, when it isn't connected, when it was last seen. Two remembered monitors of the same model also show the end of their serial number; hover for the full details. The button next to it forgets the monitor.
+
+KWin doesn't deliver keyboard input to windows created by KWin scripts (Plasma 6.7), so the settings window is mouse-only. Apps that can't be picked there can be typed in System Settings → Window Management → KWin Scripts → Remember App Monitor (settings button), one `window class = section` per line; the settings window's list wins when an app is in both.
 
 The shortcut can be changed in System Settings → Keyboard → Shortcuts → KWin → "Remember App Monitor: Open Settings".
 
-Data is stored in `~/.config/kde.org/kwin.conf` under `[RememberAppMonitor]`: `_apps` holds the app list, and every other key is an app id mapped to its remembered monitor (`manufacturer|model|serial`).
+Data is stored in `~/.config/kde.org/kwin.conf` under `[RememberAppMonitor]`: `_apps` holds the app list, `_seen` when each monitor was last connected, and every other key is an app id mapped to its remembered monitor (`manufacturer|model|serial`).
 
 ## Install
 

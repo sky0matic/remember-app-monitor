@@ -10,6 +10,8 @@ import "../code/logic.js" as Logic
 
 // Settings window, shown inside KWin (Meta+Ctrl+M by default). Edits a draft of the
 // app list; "Save" hands it to the controller (main.qml). "Forget" acts immediately.
+// KWin doesn't deliver keyboard input to its own windows, so everything here is
+// mouse-driven; app ids that can't be picked go in the System Settings page.
 ApplicationWindow {
     id: win
 
@@ -19,20 +21,31 @@ ApplicationWindow {
     property int monitorsRevision: 0
     property var suggestions: []
     property var desktopIds: ({})
+    // draft row waiting for a window to be clicked, or -1
+    property int pickingRow: -1
     readonly property real appColumnWidth: Kirigami.Units.gridUnit * 16
-    readonly property real sectionColumnWidth: Kirigami.Units.gridUnit * 12
+    readonly property real sectionColumnWidth: Kirigami.Units.gridUnit * 11
+    readonly property var manualOnly: monitorsRevision >= 0 ? Logic.manualOnly(controller.apps, controller.manualApps()) : []
 
     title: "Remember App Monitor"
-    width: 920
+    width: 980
     height: 560
     // KWin's own windows get no decoration; the header below acts as the title bar
     flags: Qt.FramelessWindowHint | Qt.Window | Qt.BypassWindowManagerHint
-    Kirigami.Theme.colorSet: Kirigami.Theme.Window
-    color: Kirigami.Theme.backgroundColor
+    // Inside KWin, Kirigami.Theme doesn't pick up the color scheme (it falls back to black),
+    // but the Qt palette does; hand the palette colors to Kirigami components too.
+    Kirigami.Theme.inherit: false
+    Kirigami.Theme.backgroundColor: palette.window
+    Kirigami.Theme.textColor: palette.windowText
+    Kirigami.Theme.disabledTextColor: palette.placeholderText
+    Kirigami.Theme.highlightColor: palette.highlight
+    Kirigami.Theme.highlightedTextColor: palette.highlightedText
+    color: palette.window
 
     function open() {
         draft.clear();
         for (const entry of controller.apps) draft.append({ app: entry.app, section: entry.section });
+        pickingRow = -1;
         refreshSuggestions();
         monitorsRevision++;
         // center on the monitor that has focus
@@ -41,8 +54,9 @@ ApplicationWindow {
         y = Math.round(area.y + (area.height - height) / 2);
         show();
         raise();
-        requestActivate();
     }
+
+    onVisibleChanged: if (!visible && pickingRow >= 0) finishPick(null)
 
     function save() {
         const list = [];
@@ -55,7 +69,7 @@ ApplicationWindow {
         const windows = [];
         for (const w of Workspace.windows) {
             if (!w.normalWindow || w.skipTaskbar) continue;
-            windows.push({ app: w.desktopFileName || w.resourceClass, label: w.caption });
+            windows.push({ app: Logic.appIdOf(w.desktopFileName, w.resourceClass, w.resourceName), label: w.caption });
         }
         const ids = [];
         for (const dir in desktopIds) ids.push(...desktopIds[dir]);
@@ -63,7 +77,66 @@ ApplicationWindow {
         suggestions = Logic.buildSuggestions(windows, ids);
     }
 
+    function pickWindow(row) {
+        pickingRow = row;
+        const g = Workspace.virtualScreenGeometry;
+        pickOverlay.x = g.x;
+        pickOverlay.y = g.y;
+        pickOverlay.width = g.width;
+        pickOverlay.height = g.height;
+        pickOverlay.show();
+        pickOverlay.raise();
+    }
+
+    // pos: global position of the click, or null when cancelled
+    function finishPick(pos) {
+        pickOverlay.hide();
+        if (pos && pickingRow >= 0 && pickingRow < draft.count) {
+            // topmost app window under the click; KWin's own windows (like this one) have no class
+            const target = Workspace.windowAt(pos, 10).find(w => w.normalWindow
+                && Logic.appIdOf(w.desktopFileName, w.resourceClass, w.resourceName));
+            if (target) {
+                refreshSuggestions();
+                draft.setProperty(pickingRow, "app", Logic.appIdOf(target.desktopFileName, target.resourceClass, target.resourceName));
+                monitorsRevision++;
+            }
+        }
+        pickingRow = -1;
+    }
+
+    function describeMonitor(id) {
+        const remembered = [];
+        for (let i = 0; i < draft.count; i++) {
+            const m = controller.rememberedMonitor(draft.get(i).app);
+            if (m) remembered.push(m);
+        }
+        const ambiguous = Logic.ambiguousModels(remembered, Workspace.screens);
+        const d = Logic.describeMonitor(id, Workspace.screens, Workspace.screenOrder, controller.seen, ambiguous);
+        let text = d.name + " · ";
+        if (d.connected) text += d.position;
+        else if (d.lastSeen) text += "last seen " + Qt.formatDate(new Date(d.lastSeen), Locale.ShortFormat);
+        else text += "not connected";
+        return { text: text, details: d.details };
+    }
+
     ListModel { id: draft }
+
+    // Picking an app by clicking its window: a transparent window over all screens catches
+    // the click, then KWin says which window is under it. (KWin's own queryWindowInfo can't
+    // be used: its D-Bus reply is delayed, which doesn't work for calls from within KWin.)
+    Window {
+        id: pickOverlay
+        flags: Qt.FramelessWindowHint | Qt.BypassWindowManagerHint | Qt.WindowStaysOnTopHint
+        // a fully transparent window would let clicks through
+        color: Qt.rgba(0, 0, 0, 0.01)
+        MouseArea {
+            anchors.fill: parent
+            cursorShape: Qt.CrossCursor
+            acceptedButtons: Qt.LeftButton | Qt.RightButton
+            onClicked: mouse => win.finishPick(mouse.button === Qt.LeftButton
+                ? Qt.point(pickOverlay.x + mouse.x, pickOverlay.y + mouse.y) : null)
+        }
+    }
 
     // Installed apps: desktop entry ids from the usual application directories
     Instantiator {
@@ -91,19 +164,17 @@ ApplicationWindow {
         }
     }
 
-    Shortcut {
-        sequence: "Escape"
-        onActivated: win.close()
-    }
-
     Rectangle {
         anchors.fill: parent
         color: "transparent"
-        border.color: Kirigami.ColorUtils.linearInterpolation(Kirigami.Theme.backgroundColor, Kirigami.Theme.textColor, 0.25)
+        border.color: Kirigami.ColorUtils.linearInterpolation(win.palette.window, win.palette.windowText, 0.25)
         z: 10
     }
 
     header: ToolBar {
+        Kirigami.Theme.inherit: false
+        Kirigami.Theme.backgroundColor: win.palette.window
+        Kirigami.Theme.textColor: win.palette.windowText
         MouseArea {
             anchors.fill: parent
             property point pressPos
@@ -148,12 +219,20 @@ ApplicationWindow {
                 + "Moving an app to another monitor makes it remember that one."
         }
 
+        Kirigami.InlineMessage {
+            Layout.fillWidth: true
+            visible: win.pickingRow >= 0
+            type: Kirigami.MessageType.Information
+            text: "Click the window of the app to add. Right-click, or click this window, to cancel."
+        }
+
         RowLayout {
             Layout.fillWidth: true
             visible: draft.count > 0
-            Label { text: "App"; font.bold: true; Layout.preferredWidth: win.appColumnWidth }
+            Label { text: "App"; font.bold: true; Layout.preferredWidth: win.appColumnWidth + pickButtonWidth.width + Kirigami.Units.smallSpacing }
             Label { text: "Section"; font.bold: true; Layout.preferredWidth: win.sectionColumnWidth }
             Label { text: "Remembered monitor"; font.bold: true; Layout.fillWidth: true }
+            ToolButton { id: pickButtonWidth; visible: false; icon.name: "crosshairs" }
         }
 
         ScrollView {
@@ -182,17 +261,32 @@ ApplicationWindow {
                         required property string app
                         required property string section
                         readonly property string monitor: win.monitorsRevision >= 0 && app ? win.controller.rememberedMonitor(app) : ""
+                        readonly property var monitorInfo: monitor ? win.describeMonitor(monitor) : null
 
                         Layout.fillWidth: true
 
-                        AppField {
+                        ThemedComboBox {
+                            id: appBox
                             Layout.preferredWidth: win.appColumnWidth
-                            text: row.app
-                            suggestions: win.suggestions
-                            onAppChosen: value => draft.setProperty(row.index, "app", value.trim().toLowerCase())
+                            model: Logic.appOptions(win.suggestions, row.app)
+                            textRole: "text"
+                            valueRole: "app"
+                            displayText: row.app || "Choose an app…"
+                            currentIndex: model.findIndex(o => o.app === row.app)
+                            onActivated: index => draft.setProperty(row.index, "app", model[index].app)
                         }
 
-                        ComboBox {
+                        ToolButton {
+                            icon.name: "crosshairs"
+                            checkable: false
+                            highlighted: win.pickingRow === row.index
+                            enabled: win.pickingRow < 0
+                            onClicked: win.pickWindow(row.index)
+                            ToolTip.text: "Pick the app by clicking its window"
+                            ToolTip.visible: hovered
+                        }
+
+                        ThemedComboBox {
                             Layout.preferredWidth: win.sectionColumnWidth
                             model: Logic.SECTIONS
                             textRole: "label"
@@ -204,12 +298,9 @@ ApplicationWindow {
                         Label {
                             Layout.fillWidth: true
                             elide: Text.ElideRight
-                            readonly property bool connected: !!Logic.findOutput(Workspace.screens, row.monitor)
-                            text: row.monitor
-                                ? Logic.monitorLabel(row.monitor) + (connected ? "" : " (not connected)")
-                                : "None yet (opens on main monitor)"
+                            text: row.monitorInfo ? row.monitorInfo.text : "None yet: remembered when the app is moved or closed"
                             opacity: row.monitor ? 1 : 0.6
-                            ToolTip.text: row.monitor ? Logic.monitorDetails(row.monitor) : text
+                            ToolTip.text: row.monitorInfo ? row.monitorInfo.details : text
                             ToolTip.visible: hoverHandler.hovered
                             HoverHandler { id: hoverHandler }
                         }
@@ -233,6 +324,16 @@ ApplicationWindow {
                         }
                     }
                 }
+
+                Label {
+                    Layout.fillWidth: true
+                    Layout.topMargin: Kirigami.Units.largeSpacing
+                    visible: win.manualOnly.length > 0
+                    wrapMode: Text.WordWrap
+                    opacity: 0.7
+                    text: "Also set in System Settings → KWin Scripts → Remember App Monitor: "
+                        + win.manualOnly.map(m => m.app + " (" + Logic.sectionById(m.section).label.toLowerCase() + ")").join(", ")
+                }
             }
         }
 
@@ -243,7 +344,14 @@ ApplicationWindow {
                 icon.name: "list-add"
                 onClicked: draft.append({ app: "", section: Logic.DEFAULT_SECTION })
             }
-            Item { Layout.fillWidth: true }
+            Label {
+                Layout.fillWidth: true
+                Layout.leftMargin: Kirigami.Units.largeSpacing
+                wrapMode: Text.WordWrap
+                opacity: 0.6
+                font: Kirigami.Theme.smallFont
+                text: "App not listed? Open it and use the crosshair, or type it in System Settings → KWin Scripts → Remember App Monitor."
+            }
             Button {
                 text: "Cancel"
                 icon.name: "dialog-cancel"
@@ -258,76 +366,17 @@ ApplicationWindow {
         }
     }
 
-    // Text field for an app id with a searchable list of open windows and installed
-    // apps; any typed value is accepted as-is.
-    component AppField: TextField {
-        id: field
-
-        property var suggestions: []
-        signal appChosen(string value)
-
-        placeholderText: "Search apps or type a window class"
-        onTextEdited: {
-            matches.model = Logic.filterSuggestions(suggestions, text, 50);
-            popup.open();
-        }
-        onActiveFocusChanged: {
-            if (activeFocus) {
-                matches.model = Logic.filterSuggestions(suggestions, text, 50);
-                popup.open();
-            }
-        }
-        onEditingFinished: appChosen(text)
-        Keys.onDownPressed: {
-            popup.open();
-            matches.forceActiveFocus();
-        }
-
-        Popup {
-            id: popup
-            y: field.height
-            width: Math.max(field.width, Kirigami.Units.gridUnit * 22)
-            height: Math.min(matches.contentHeight + topPadding + bottomPadding, Kirigami.Units.gridUnit * 14)
-            padding: 1
-            visible: false
-            closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutsideParent
-
-            ListView {
-                id: matches
-                anchors.fill: parent
-                clip: true
-                keyNavigationEnabled: true
-                Keys.onReturnPressed: if (currentItem) currentItem.choose(currentItem.modelData.app)
-                delegate: ItemDelegate {
-                    required property var modelData
-                    width: ListView.view.width
-                    highlighted: ListView.isCurrentItem
-                    contentItem: RowLayout {
-                        Kirigami.Icon {
-                            source: modelData.app
-                            fallback: "application-x-executable"
-                            implicitWidth: Kirigami.Units.iconSizes.small
-                            implicitHeight: implicitWidth
-                        }
-                        Label {
-                            text: modelData.label
-                            elide: Text.ElideRight
-                            Layout.fillWidth: true
-                        }
-                        Label {
-                            text: modelData.source === "open" ? modelData.app + " · open" : ""
-                            opacity: 0.6
-                            visible: text !== ""
-                        }
-                    }
-                    onClicked: choose(modelData.app)
-                    function choose(app) {
-                        field.text = app;
-                        field.appChosen(app);
-                        popup.close();
-                    }
-                }
-            }
+    // Combo boxes and their popups use the "View"/"Button" colors, which also fall back
+    // to black inside KWin; give them the palette's colors.
+    component ThemedComboBox: ComboBox {
+        Kirigami.Theme.inherit: false
+        Kirigami.Theme.backgroundColor: win.palette.button
+        Kirigami.Theme.textColor: win.palette.buttonText
+        Kirigami.Theme.highlightColor: win.palette.highlight
+        Kirigami.Theme.highlightedTextColor: win.palette.highlightedText
+        popup.background: Rectangle {
+            color: win.palette.base
+            border.color: Kirigami.ColorUtils.linearInterpolation(win.palette.base, win.palette.text, 0.25)
         }
     }
 }

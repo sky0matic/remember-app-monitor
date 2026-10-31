@@ -6,7 +6,7 @@
    <item>
     <widget class="QLabel" name="label">
      <property name="text">
-      <string>&lt;p&gt;Apps and their sections are set in the &lt;b&gt;Remember App Monitor&lt;/b&gt; window.&lt;/p&gt;&lt;p&gt;Open it with &lt;b&gt;Meta+Ctrl+M&lt;/b&gt; (change it in System Settings → Keyboard → Shortcuts → KWin → "Remember App Monitor: Open Settings").&lt;/p&gt;</string>
+      <string>&lt;p&gt;Apps and their sections are set in the &lt;b&gt;Remember App Monitor&lt;/b&gt; window: press &lt;b&gt;Meta+Ctrl+M&lt;/b&gt; (change it in System Settings → Keyboard → Shortcuts → KWin → "Remember App Monitor: Open Settings").&lt;/p&gt;&lt;p&gt;That window can't receive typing, so apps it can't list or pick can be added here instead, one per line: &lt;b&gt;window class = section&lt;/b&gt; (e.g. &lt;code&gt;steam = maximized&lt;/code&gt;). Lines starting with # are ignored. If an app is also in the window's list, the window's setting wins.&lt;/p&gt;&lt;p&gt;Sections: left, right, top, bottom, top-left, top-right, bottom-left, bottom-right, left-third, center-third, right-third, maximized, center, keep.&lt;/p&gt;</string>
      </property>
      <property name="wordWrap">
       <bool>true</bool>
@@ -14,11 +14,11 @@
     </widget>
    </item>
    <item>
-    <spacer name="verticalSpacer">
-     <property name="orientation">
-      <enum>Qt::Vertical</enum>
+    <widget class="QPlainTextEdit" name="kcfg_apps">
+     <property name="placeholderText">
+      <string>steam = maximized</string>
      </property>
-    </spacer>
+    </widget>
    </item>
   </layout>
  </widget>
