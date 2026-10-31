@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.0.1](https://github.com/sky0matic/remember-app-monitor/compare/v1.0.0...v1.0.1) (2026-10-31)
+
+
+### Bug Fixes
+
+* make the System Settings page point clearly to the settings window ([#2](https://github.com/sky0matic/remember-app-monitor/issues/2)) ([3dd1475](https://github.com/sky0matic/remember-app-monitor/commit/3dd14755dcd9952774fb1cafcdb2c94b7ccd71df))
+
 ## 1.0.0 (2026-10-31)
 
 
