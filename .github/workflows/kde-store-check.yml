@@ -1,0 +1,29 @@
+name: KDE Store login check
+
+# Run manually (Actions → KDE Store login check → Run workflow) to check that the store
+# credentials and project id work. Logs in and finds the upload endpoints; changes nothing.
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  dry-run:
+    runs-on: ubuntu-24.04
+    environment:
+      name: kde-store
+      url: https://store.kde.org/p/${{ vars.KDE_STORE_PROJECT_ID }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install niquests==3.21.2
+      - name: Log in and find the upload endpoints
+        env:
+          PLING_PROJECT_ID: ${{ vars.KDE_STORE_PROJECT_ID }}
+          PLING_USERNAME: ${{ secrets.PLING_USERNAME }}
+          PLING_PASSWORD: ${{ secrets.PLING_PASSWORD }}
+        run: python scripts/pling_upload.py --dry-run

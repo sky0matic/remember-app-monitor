@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=Remember App Monitor
+Comment=Choose which monitor and section apps open in
+Icon=preferences-desktop-display
+Exec=dbus-send --session --type=method_call --dest=org.kde.kglobalaccel /component/kwin org.kde.kglobalaccel.Component.invokeShortcut "string:Remember App Monitor: Settings"
+Categories=Settings;DesktopSettings;
+Keywords=monitor;screen;window;placement;position;discord;

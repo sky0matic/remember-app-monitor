@@ -1,0 +1,19 @@
+{
+    "KPackageStructure": "KWin/Script",
+    "KPlugin": {
+        "Authors": [
+            {
+                "Name": "sky0matic"
+            }
+        ],
+        "Name": "Remember App Monitor",
+        "Description": "Open chosen apps on the monitor they were last moved to, in a section of it you pick",
+        "Icon": "preferences-desktop-display",
+        "Id": "remember-app-monitor",
+        "Version": "1.0.0",
+        "License": "MIT"
+    },
+    "X-Plasma-API": "declarativescript",
+    "X-Plasma-MainScript": "ui/main.qml",
+    "X-KDE-ConfigModule": "kwin/effects/configs/kcm_kwin4_genericscripted"
+}
