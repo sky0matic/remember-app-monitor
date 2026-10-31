@@ -32,14 +32,10 @@ ApplicationWindow {
     height: 560
     // KWin's own windows get no decoration; the header below acts as the title bar
     flags: Qt.FramelessWindowHint | Qt.Window | Qt.BypassWindowManagerHint
-    // Inside KWin, Kirigami.Theme doesn't pick up the color scheme (it falls back to black),
-    // but the Qt palette does; hand the palette colors to Kirigami components too.
-    Kirigami.Theme.inherit: false
-    Kirigami.Theme.backgroundColor: palette.window
-    Kirigami.Theme.textColor: palette.windowText
-    Kirigami.Theme.disabledTextColor: palette.placeholderText
-    Kirigami.Theme.highlightColor: palette.highlight
-    Kirigami.Theme.highlightedTextColor: palette.highlightedText
+    // Inside KWin, Kirigami.Theme doesn't pick up the color scheme (it falls back to fixed
+    // dark colors), but the Qt palette does. The palette's colors are handed to Kirigami on
+    // the content items and on each control with its own color set (buttons, combo boxes);
+    // set on the window itself, they wouldn't reach its contents.
     color: palette.window
 
     function open() {
@@ -175,6 +171,9 @@ ApplicationWindow {
         Kirigami.Theme.inherit: false
         Kirigami.Theme.backgroundColor: win.palette.window
         Kirigami.Theme.textColor: win.palette.windowText
+        Kirigami.Theme.disabledTextColor: win.palette.placeholderText
+        Kirigami.Theme.highlightColor: win.palette.highlight
+        Kirigami.Theme.highlightedTextColor: win.palette.highlightedText
         MouseArea {
             anchors.fill: parent
             property point pressPos
@@ -197,7 +196,7 @@ ApplicationWindow {
                 level: 3
                 Layout.fillWidth: true
             }
-            ToolButton {
+            ThemedToolButton {
                 icon.name: "window-close"
                 onClicked: win.close()
                 ToolTip.text: "Close without saving"
@@ -209,6 +208,12 @@ ApplicationWindow {
     ColumnLayout {
         anchors.fill: parent
         anchors.margins: Kirigami.Units.largeSpacing
+        Kirigami.Theme.inherit: false
+        Kirigami.Theme.backgroundColor: win.palette.window
+        Kirigami.Theme.textColor: win.palette.windowText
+        Kirigami.Theme.disabledTextColor: win.palette.placeholderText
+        Kirigami.Theme.highlightColor: win.palette.highlight
+        Kirigami.Theme.highlightedTextColor: win.palette.highlightedText
         spacing: Kirigami.Units.largeSpacing
 
         Label {
@@ -232,7 +237,7 @@ ApplicationWindow {
             Label { text: "App"; font.bold: true; Layout.preferredWidth: win.appColumnWidth + pickButtonWidth.width + Kirigami.Units.smallSpacing }
             Label { text: "Section"; font.bold: true; Layout.preferredWidth: win.sectionColumnWidth }
             Label { text: "Remembered monitor"; font.bold: true; Layout.fillWidth: true }
-            ToolButton { id: pickButtonWidth; visible: false; icon.name: "crosshairs" }
+            ThemedToolButton { id: pickButtonWidth; visible: false; icon.name: "crosshairs" }
         }
 
         ScrollView {
@@ -276,7 +281,7 @@ ApplicationWindow {
                             onActivated: index => draft.setProperty(row.index, "app", model[index].app)
                         }
 
-                        ToolButton {
+                        ThemedToolButton {
                             icon.name: "crosshairs"
                             checkable: false
                             highlighted: win.pickingRow === row.index
@@ -305,7 +310,7 @@ ApplicationWindow {
                             HoverHandler { id: hoverHandler }
                         }
 
-                        ToolButton {
+                        ThemedToolButton {
                             icon.name: "edit-clear-history"
                             enabled: !!row.monitor
                             onClicked: {
@@ -316,7 +321,7 @@ ApplicationWindow {
                             ToolTip.visible: hovered
                         }
 
-                        ToolButton {
+                        ThemedToolButton {
                             icon.name: "list-remove"
                             onClicked: draft.remove(row.index)
                             ToolTip.text: "Remove this app"
@@ -339,7 +344,7 @@ ApplicationWindow {
 
         RowLayout {
             Layout.fillWidth: true
-            Button {
+            ThemedButton {
                 text: "Add app"
                 icon.name: "list-add"
                 onClicked: draft.append({ app: "", section: Logic.DEFAULT_SECTION })
@@ -352,12 +357,12 @@ ApplicationWindow {
                 font: Kirigami.Theme.smallFont
                 text: "App not listed? Open it and use the crosshair, or type it in System Settings → KWin Scripts → Remember App Monitor."
             }
-            Button {
+            ThemedButton {
                 text: "Cancel"
                 icon.name: "dialog-cancel"
                 onClicked: win.close()
             }
-            Button {
+            ThemedButton {
                 text: "Save"
                 icon.name: "document-save"
                 highlighted: true
@@ -368,12 +373,37 @@ ApplicationWindow {
 
     // Combo boxes and their popups use the "View"/"Button" colors, which also fall back
     // to black inside KWin; give them the palette's colors.
+    component ThemedButton: Button {
+        Kirigami.Theme.inherit: false
+        Kirigami.Theme.backgroundColor: win.palette.button
+        Kirigami.Theme.textColor: win.palette.buttonText
+        Kirigami.Theme.disabledTextColor: win.palette.placeholderText
+        Kirigami.Theme.highlightColor: win.palette.highlight
+        Kirigami.Theme.highlightedTextColor: win.palette.highlightedText
+        Kirigami.Theme.hoverColor: win.palette.highlight
+        Kirigami.Theme.focusColor: win.palette.highlight
+    }
+
+    component ThemedToolButton: ToolButton {
+        Kirigami.Theme.inherit: false
+        Kirigami.Theme.backgroundColor: win.palette.button
+        Kirigami.Theme.textColor: win.palette.buttonText
+        Kirigami.Theme.disabledTextColor: win.palette.placeholderText
+        Kirigami.Theme.highlightColor: win.palette.highlight
+        Kirigami.Theme.highlightedTextColor: win.palette.highlightedText
+        Kirigami.Theme.hoverColor: win.palette.highlight
+        Kirigami.Theme.focusColor: win.palette.highlight
+    }
+
     component ThemedComboBox: ComboBox {
         Kirigami.Theme.inherit: false
         Kirigami.Theme.backgroundColor: win.palette.button
         Kirigami.Theme.textColor: win.palette.buttonText
+        Kirigami.Theme.disabledTextColor: win.palette.placeholderText
         Kirigami.Theme.highlightColor: win.palette.highlight
         Kirigami.Theme.highlightedTextColor: win.palette.highlightedText
+        Kirigami.Theme.hoverColor: win.palette.highlight
+        Kirigami.Theme.focusColor: win.palette.highlight
         popup.background: Rectangle {
             color: win.palette.base
             border.color: Kirigami.ColorUtils.linearInterpolation(win.palette.base, win.palette.text, 0.25)

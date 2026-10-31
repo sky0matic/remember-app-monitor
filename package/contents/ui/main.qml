@@ -211,6 +211,14 @@ Item {
         }
     }
 
+    // Keep last-seen times current for monitors that stay connected. (Not done on
+    // destruction: running script code while KWin tears the script down crashes KWin.)
+    Timer {
+        interval: 10 * 60 * 1000
+        repeat: true
+        running: true
+        onTriggered: root.updateSeen()
+    }
+
     Component.onCompleted: loadApps()
-    Component.onDestruction: updateSeen()
 }
